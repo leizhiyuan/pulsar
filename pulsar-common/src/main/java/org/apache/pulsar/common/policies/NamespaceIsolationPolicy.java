@@ -44,6 +44,13 @@ public interface NamespaceIsolationPolicy {
     List<String> getSecondaryBrokers();
 
     /**
+     * Get the order of policy
+     *
+     * @return
+     */
+    int getOrder();
+
+    /**
      * Get the list of primary brokers for the namespace according to the policy.
      *
      * @param availableBrokers brokers identified by service URL.

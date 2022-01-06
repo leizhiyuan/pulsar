@@ -18,7 +18,9 @@
  */
 package org.apache.pulsar.common.policies.impl;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import org.apache.pulsar.common.naming.NamespaceName;
@@ -66,7 +68,9 @@ public class NamespaceIsolationPolicies {
      * @return
      */
     public NamespaceIsolationPolicy getPolicyByNamespace(NamespaceName namespace) {
-        for (NamespaceIsolationData nsPolicyData : policies.values()) {
+        List<NamespaceIsolationDataImpl> policies = new ArrayList<>(this.policies.values());
+        policies.sort((lhs, rhs) -> Integer.compare(rhs.getPriority(), lhs.getPriority()));
+        for (NamespaceIsolationData nsPolicyData : policies) {
             if (this.namespaceMatches(namespace, nsPolicyData)) {
                 return new NamespaceIsolationPolicyImpl(nsPolicyData);
             }

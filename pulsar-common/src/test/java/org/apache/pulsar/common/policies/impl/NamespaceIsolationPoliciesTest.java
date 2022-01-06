@@ -192,4 +192,34 @@ public class NamespaceIsolationPoliciesTest {
         assertEquals(sharedCandidates.size(), 1);
         assertEquals(shared, sharedCandidates.first());
     }
+
+    @Test
+    public void testPolicyOrder() throws Exception {
+        NamespaceIsolationPolicies policies = new NamespaceIsolationPolicies();
+        // set a new policy
+        String newPolicyJson =
+                "{\"namespaces\":[\"pulsar/use/TESTNS.*\"],\"primary\":[\"prod1-broker[45].messaging.use.example"
+                        + ".com\"],\"secondary\":[\"prod1-broker.*.use.example.com\"],"
+                        + "\"auto_failover_policy\":{\"policy_type\":\"min_available\","
+                        + "\"parameters\":{\"min_limit\":2,\"usage_threshold\":80}},\"order\":1}";
+        String newPolicyName = "policy1";
+        ObjectMapper jsonMapper = ObjectMapperFactory.create();
+        NamespaceIsolationDataImpl nsPolicyData = jsonMapper.readValue(newPolicyJson.getBytes(),
+                NamespaceIsolationDataImpl.class);
+        policies.setPolicy(newPolicyName, nsPolicyData);
+
+        String newPolicyJson2 =
+                 "{\"namespaces\":[\"pulsar/use/TESTNS.*\"],\"primary\":[\"prod1-broker[45].messaging.use.example"
+                         + ".com\"],\"secondary\":[\"prod1-broker.*.use.example.com\"],"
+                         + "\"auto_failover_policy\":{\"policy_type\":\"min_available\","
+                         + "\"parameters\":{\"min_limit\":2,\"usage_threshold\":80}},\"order\":1}";
+       String  newPolicyName2 = "policy2";
+        NamespaceIsolationDataImpl nsPolicyData2 = jsonMapper.readValue(newPolicyJson2.getBytes(),
+                NamespaceIsolationDataImpl.class);
+        policies.setPolicy(newPolicyName2, nsPolicyData2);
+
+        assertEquals(policies.getPolicies().size(), 2);
+        assertEquals(policies.getPolicyByNamespace(NamespaceName.get("pulsar/use/TESTNS.1")),
+                new NamespaceIsolationPolicyImpl(nsPolicyData2));
+    }
 }

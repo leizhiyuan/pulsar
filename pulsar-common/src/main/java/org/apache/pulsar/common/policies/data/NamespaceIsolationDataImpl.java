@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -18,18 +18,18 @@
  */
 package org.apache.pulsar.common.policies.data;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-import static com.google.common.base.Preconditions.checkArgument;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * The data of namespace isolation configuration.
@@ -60,7 +60,6 @@ public class NamespaceIsolationDataImpl implements NamespaceIsolationData {
             value = "The list of secondary brokers for serving the list of namespaces in this isolation policy"
     )
     private List<String> secondary;
-
     @ApiModelProperty(
             name = "auto_failover_policy",
             value = "The data of auto-failover policy configuration",
@@ -74,6 +73,13 @@ public class NamespaceIsolationDataImpl implements NamespaceIsolationData {
     )
     @JsonProperty("auto_failover_policy")
     private AutoFailoverPolicyData autoFailoverPolicy;
+
+    @ApiModelProperty(
+            name = "priority",
+            value = "The priority of this isolation policy"
+    )
+    private int priority;
+
 
     public static NamespaceIsolationDataImplBuilder builder() {
         return new NamespaceIsolationDataImplBuilder();
@@ -106,6 +112,7 @@ public class NamespaceIsolationDataImpl implements NamespaceIsolationData {
         private List<String> primary = new ArrayList<>();
         private List<String> secondary = new ArrayList<>();
         private AutoFailoverPolicyData autoFailoverPolicy;
+        private int priority;
 
         public NamespaceIsolationDataImplBuilder namespaces(List<String> namespaces) {
             this.namespaces = namespaces;
@@ -127,8 +134,13 @@ public class NamespaceIsolationDataImpl implements NamespaceIsolationData {
             return this;
         }
 
+        public NamespaceIsolationDataImplBuilder priority(int priority) {
+            this.priority = priority;
+            return this;
+        }
+
         public NamespaceIsolationDataImpl build() {
-            return new NamespaceIsolationDataImpl(namespaces, primary, secondary, autoFailoverPolicy);
+            return new NamespaceIsolationDataImpl(namespaces, primary, secondary, autoFailoverPolicy, priority);
         }
     }
 }

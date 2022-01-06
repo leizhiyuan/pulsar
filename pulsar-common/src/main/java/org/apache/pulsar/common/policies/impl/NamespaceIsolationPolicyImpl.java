@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -39,6 +39,7 @@ public class NamespaceIsolationPolicyImpl implements NamespaceIsolationPolicy {
     private List<String> primary;
     private List<String> secondary;
     private AutoFailoverPolicy autoFailoverPolicy;
+    private int order;
 
     private boolean matchNamespaces(String fqnn) {
         for (String nsRegex : namespaces) {
@@ -64,6 +65,7 @@ public class NamespaceIsolationPolicyImpl implements NamespaceIsolationPolicy {
         this.primary = policyData.getPrimary();
         this.secondary = policyData.getSecondary();
         this.autoFailoverPolicy = AutoFailoverPolicyFactory.create(policyData.getAutoFailoverPolicy());
+        this.order = policyData.getPriority();
     }
 
     @Override
@@ -74,6 +76,12 @@ public class NamespaceIsolationPolicyImpl implements NamespaceIsolationPolicy {
     @Override
     public List<String> getSecondaryBrokers() {
         return this.secondary;
+    }
+
+
+    @Override
+    public int getOrder() {
+        return this.order;
     }
 
     @Override
@@ -122,7 +130,7 @@ public class NamespaceIsolationPolicyImpl implements NamespaceIsolationPolicy {
     @Override
     public int hashCode() {
         return Objects.hash(namespaces, primary, secondary,
-            autoFailoverPolicy);
+                autoFailoverPolicy);
     }
 
     @Override
