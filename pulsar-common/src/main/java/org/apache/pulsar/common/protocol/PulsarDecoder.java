@@ -23,61 +23,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.haproxy.HAProxyMessage;
-import org.apache.pulsar.common.api.proto.BaseCommand;
-import org.apache.pulsar.common.api.proto.CommandAck;
-import org.apache.pulsar.common.api.proto.CommandAckResponse;
-import org.apache.pulsar.common.api.proto.CommandActiveConsumerChange;
-import org.apache.pulsar.common.api.proto.CommandAddPartitionToTxn;
-import org.apache.pulsar.common.api.proto.CommandAddPartitionToTxnResponse;
-import org.apache.pulsar.common.api.proto.CommandAddSubscriptionToTxn;
-import org.apache.pulsar.common.api.proto.CommandAddSubscriptionToTxnResponse;
-import org.apache.pulsar.common.api.proto.CommandAuthChallenge;
-import org.apache.pulsar.common.api.proto.CommandAuthResponse;
-import org.apache.pulsar.common.api.proto.CommandCloseConsumer;
-import org.apache.pulsar.common.api.proto.CommandCloseProducer;
-import org.apache.pulsar.common.api.proto.CommandConnect;
-import org.apache.pulsar.common.api.proto.CommandConnected;
-import org.apache.pulsar.common.api.proto.CommandConsumerStats;
-import org.apache.pulsar.common.api.proto.CommandConsumerStatsResponse;
-import org.apache.pulsar.common.api.proto.CommandEndTxn;
-import org.apache.pulsar.common.api.proto.CommandEndTxnOnPartition;
-import org.apache.pulsar.common.api.proto.CommandEndTxnOnPartitionResponse;
-import org.apache.pulsar.common.api.proto.CommandEndTxnOnSubscription;
-import org.apache.pulsar.common.api.proto.CommandEndTxnOnSubscriptionResponse;
-import org.apache.pulsar.common.api.proto.CommandEndTxnResponse;
-import org.apache.pulsar.common.api.proto.CommandError;
-import org.apache.pulsar.common.api.proto.CommandFlow;
-import org.apache.pulsar.common.api.proto.CommandGetLastMessageId;
-import org.apache.pulsar.common.api.proto.CommandGetLastMessageIdResponse;
-import org.apache.pulsar.common.api.proto.CommandGetOrCreateSchema;
-import org.apache.pulsar.common.api.proto.CommandGetOrCreateSchemaResponse;
-import org.apache.pulsar.common.api.proto.CommandGetSchema;
-import org.apache.pulsar.common.api.proto.CommandGetSchemaResponse;
-import org.apache.pulsar.common.api.proto.CommandGetTopicsOfNamespace;
-import org.apache.pulsar.common.api.proto.CommandGetTopicsOfNamespaceResponse;
-import org.apache.pulsar.common.api.proto.CommandLookupTopic;
-import org.apache.pulsar.common.api.proto.CommandLookupTopicResponse;
-import org.apache.pulsar.common.api.proto.CommandMessage;
-import org.apache.pulsar.common.api.proto.CommandNewTxn;
-import org.apache.pulsar.common.api.proto.CommandNewTxnResponse;
-import org.apache.pulsar.common.api.proto.CommandPartitionedTopicMetadata;
-import org.apache.pulsar.common.api.proto.CommandPartitionedTopicMetadataResponse;
-import org.apache.pulsar.common.api.proto.CommandPing;
-import org.apache.pulsar.common.api.proto.CommandPong;
-import org.apache.pulsar.common.api.proto.CommandProducer;
-import org.apache.pulsar.common.api.proto.CommandProducerSuccess;
-import org.apache.pulsar.common.api.proto.CommandReachedEndOfTopic;
-import org.apache.pulsar.common.api.proto.CommandRedeliverUnacknowledgedMessages;
-import org.apache.pulsar.common.api.proto.CommandSeek;
-import org.apache.pulsar.common.api.proto.CommandSend;
-import org.apache.pulsar.common.api.proto.CommandSendError;
-import org.apache.pulsar.common.api.proto.CommandSendReceipt;
-import org.apache.pulsar.common.api.proto.CommandSubscribe;
-import org.apache.pulsar.common.api.proto.CommandSuccess;
-import org.apache.pulsar.common.api.proto.CommandTcClientConnectRequest;
-import org.apache.pulsar.common.api.proto.CommandTcClientConnectResponse;
-import org.apache.pulsar.common.api.proto.CommandUnsubscribe;
-import org.apache.pulsar.common.api.proto.ServerError;
+import org.apache.pulsar.common.api.proto.*;
 import org.apache.pulsar.common.intercept.InterceptException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -182,7 +128,10 @@ public abstract class PulsarDecoder extends ChannelInboundHandlerAdapter {
                 checkArgument(cmd.hasFlow());
                 handleFlow(cmd.getFlow());
                 break;
-
+            case POP:
+                checkArgument(cmd.hasPop());
+                handlePop(cmd.getPop());
+                break;
             case MESSAGE: {
                 checkArgument(cmd.hasMessage());
                 handleMessage(cmd.getMessage(), buffer);
@@ -516,6 +465,10 @@ public abstract class PulsarDecoder extends ChannelInboundHandlerAdapter {
     }
 
     protected void handleFlow(CommandFlow flow) {
+        throw new UnsupportedOperationException();
+    }
+
+    protected void handlePop(CommandPop pop) {
         throw new UnsupportedOperationException();
     }
 

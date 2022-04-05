@@ -38,6 +38,15 @@ public interface Dispatcher {
      */
     void consumerFlow(Consumer consumer, int additionalNumberOfMessages);
 
+    /**
+     * Indicates that this consumer is now ready to receive more messages.
+     *
+     * @param consumer
+     */
+    default void consumerPop(Consumer consumer, int additionalNumberOfMessages){
+
+    }
+
     boolean isConsumerConnected();
 
     List<Consumer> getConsumers();

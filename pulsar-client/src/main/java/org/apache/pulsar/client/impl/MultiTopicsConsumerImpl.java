@@ -1287,6 +1287,11 @@ public class MultiTopicsConsumerImpl<T> extends ConsumerBase<T> {
         return lastDisconnectedTimestamp;
     }
 
+    @Override
+    public Message<T> pop() throws PulsarClientException {
+        return null;
+    }
+
     // This listener is triggered when topics partitions are updated.
     private class TopicsPartitionChangedListener implements PartitionsChangedListener {
         // Check partitions changes of passed in topics, and subscribe new added partitions.

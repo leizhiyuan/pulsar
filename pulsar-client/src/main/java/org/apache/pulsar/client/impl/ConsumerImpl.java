@@ -60,21 +60,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.pulsar.client.api.Consumer;
-import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
-import org.apache.pulsar.client.api.DeadLetterPolicy;
-import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.client.api.MessageCrypto;
-import org.apache.pulsar.client.api.MessageId;
-import org.apache.pulsar.client.api.Messages;
-import org.apache.pulsar.client.api.Producer;
-import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.*;
 import org.apache.pulsar.client.api.PulsarClientException.TopicDoesNotExistException;
-import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.client.api.SubscriptionInitialPosition;
-import org.apache.pulsar.client.api.SubscriptionMode;
-import org.apache.pulsar.client.api.SubscriptionType;
-import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.api.transaction.TxnID;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 import org.apache.pulsar.client.impl.crypto.MessageCryptoBc;
@@ -938,6 +925,11 @@ public class ConsumerImpl<T> extends ConsumerBase<T> implements ConnectionHandle
      * send the flow command to have the broker start pushing messages.
      */
     private void sendFlowPermitsToBroker(ClientCnx cnx, int numMessages) {
+
+        if (this.conf.getConsumeMode() == ConsumeMode.Pop){
+            return;
+        }
+
         if (cnx != null && numMessages > 0) {
             if (log.isDebugEnabled()) {
                 log.debug("[{}] [{}] Adding {} additional permits", topic, subscription, numMessages);
@@ -956,6 +948,44 @@ public class ConsumerImpl<T> extends ConsumerBase<T> implements ConnectionHandle
                 cnx.ctx().writeAndFlush(Commands.newFlow(consumerId, numMessages), cnx.ctx().voidPromise());
             }
         }
+    }
+
+    @Override
+    public Message<T> pop() throws PulsarClientException {
+        Message message = this.sendPopToBroker(this.cnx(), 1);
+        return message;
+    }
+
+    /**
+     * send the flow command to have the broker start pushing messages.
+     */
+    public Message sendPopToBroker(ClientCnx cnx, int numMessages) {
+        if (cnx != null && numMessages > 0) {
+            if (log.isDebugEnabled()) {
+                log.debug("[{}] [{}] Adding {} additional permits", topic, subscription, numMessages);
+            }
+            if (log.isDebugEnabled()) {
+                cnx.ctx().writeAndFlush(Commands.newPop(consumerId, numMessages))
+                        .addListener(writeFuture -> {
+                            if (!writeFuture.isSuccess()) {
+                                log.debug("Consumer {} failed to send {} permits to broker: {}",
+                                        consumerId, numMessages, writeFuture.cause().getMessage());
+                            } else {
+                                log.debug("Consumer {} sent {} permits to broker", consumerId, numMessages);
+                            }
+                        });
+            } else {
+                cnx.ctx().writeAndFlush(Commands.newPop(consumerId, numMessages), cnx.ctx().voidPromise());
+            }
+        }
+        Message<T> message = null;
+        try {
+            message = internalReceive();
+        } catch (PulsarClientException e) {
+            e.printStackTrace();
+        }
+
+        return message;
     }
 
     @Override

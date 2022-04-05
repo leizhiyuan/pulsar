@@ -89,46 +89,9 @@ import org.apache.pulsar.client.impl.ClientCnx;
 import org.apache.pulsar.client.impl.MessageIdImpl;
 import org.apache.pulsar.client.impl.schema.SchemaInfoUtil;
 import org.apache.pulsar.common.api.AuthData;
-import org.apache.pulsar.common.api.proto.BaseCommand;
-import org.apache.pulsar.common.api.proto.CommandAck;
-import org.apache.pulsar.common.api.proto.CommandAddPartitionToTxn;
-import org.apache.pulsar.common.api.proto.CommandAddSubscriptionToTxn;
-import org.apache.pulsar.common.api.proto.CommandAuthResponse;
-import org.apache.pulsar.common.api.proto.CommandCloseConsumer;
-import org.apache.pulsar.common.api.proto.CommandCloseProducer;
-import org.apache.pulsar.common.api.proto.CommandConnect;
-import org.apache.pulsar.common.api.proto.CommandConsumerStats;
-import org.apache.pulsar.common.api.proto.CommandEndTxn;
-import org.apache.pulsar.common.api.proto.CommandEndTxnOnPartition;
-import org.apache.pulsar.common.api.proto.CommandEndTxnOnSubscription;
-import org.apache.pulsar.common.api.proto.CommandFlow;
-import org.apache.pulsar.common.api.proto.CommandGetLastMessageId;
-import org.apache.pulsar.common.api.proto.CommandGetOrCreateSchema;
-import org.apache.pulsar.common.api.proto.CommandGetSchema;
-import org.apache.pulsar.common.api.proto.CommandGetTopicsOfNamespace;
-import org.apache.pulsar.common.api.proto.CommandLookupTopic;
-import org.apache.pulsar.common.api.proto.CommandNewTxn;
-import org.apache.pulsar.common.api.proto.CommandPartitionedTopicMetadata;
-import org.apache.pulsar.common.api.proto.CommandProducer;
-import org.apache.pulsar.common.api.proto.CommandRedeliverUnacknowledgedMessages;
-import org.apache.pulsar.common.api.proto.CommandSeek;
-import org.apache.pulsar.common.api.proto.CommandSend;
-import org.apache.pulsar.common.api.proto.CommandSubscribe;
+import org.apache.pulsar.common.api.proto.*;
 import org.apache.pulsar.common.api.proto.CommandSubscribe.InitialPosition;
 import org.apache.pulsar.common.api.proto.CommandSubscribe.SubType;
-import org.apache.pulsar.common.api.proto.CommandTcClientConnectRequest;
-import org.apache.pulsar.common.api.proto.CommandUnsubscribe;
-import org.apache.pulsar.common.api.proto.FeatureFlags;
-import org.apache.pulsar.common.api.proto.KeySharedMeta;
-import org.apache.pulsar.common.api.proto.KeySharedMode;
-import org.apache.pulsar.common.api.proto.KeyValue;
-import org.apache.pulsar.common.api.proto.MessageIdData;
-import org.apache.pulsar.common.api.proto.MessageMetadata;
-import org.apache.pulsar.common.api.proto.ProducerAccessMode;
-import org.apache.pulsar.common.api.proto.ProtocolVersion;
-import org.apache.pulsar.common.api.proto.Schema;
-import org.apache.pulsar.common.api.proto.ServerError;
-import org.apache.pulsar.common.api.proto.TxnAction;
 import org.apache.pulsar.common.intercept.InterceptException;
 import org.apache.pulsar.common.naming.Metadata;
 import org.apache.pulsar.common.naming.NamespaceName;
@@ -1578,6 +1541,26 @@ public class ServerCnx extends PulsarHandler implements TransportCnx {
                 consumer.flowPermits(flow.getMessagePermits());
             } else {
                 log.info("[{}] Couldn't find consumer {}", remoteAddress, flow.getConsumerId());
+            }
+        }
+    }
+
+    @Override
+    protected void handlePop(CommandPop pop) {
+        checkArgument(state == State.Connected);
+        if (log.isDebugEnabled()) {
+            log.debug("[{}] Received flow from consumer {} permits: {}", remoteAddress, pop.getConsumerId(),
+                    pop.getMessagePermits());
+        }
+
+        CompletableFuture<Consumer> consumerFuture = consumers.get(pop.getConsumerId());
+
+        if (consumerFuture != null && consumerFuture.isDone() && !consumerFuture.isCompletedExceptionally()) {
+            Consumer consumer = consumerFuture.getNow(null);
+            if (consumer != null) {
+                consumer.popPermits(pop.getMessagePermits());
+            } else {
+                log.info("[{}] Couldn't find consumer {}", remoteAddress, pop.getConsumerId());
             }
         }
     }

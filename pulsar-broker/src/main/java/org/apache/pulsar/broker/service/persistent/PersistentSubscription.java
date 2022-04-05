@@ -365,6 +365,12 @@ public class PersistentSubscription implements Subscription {
     }
 
     @Override
+    public void consumerPop(Consumer consumer, int additionalNumberOfMessages) {
+        this.lastConsumedFlowTimestamp = System.currentTimeMillis();
+        dispatcher.consumerPop(consumer, additionalNumberOfMessages);
+    }
+
+    @Override
     public void acknowledgeMessage(List<Position> positions, AckType ackType, Map<String, Long> properties) {
         Position previousMarkDeletePosition = cursor.getMarkDeletedPosition();
 

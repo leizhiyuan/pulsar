@@ -127,4 +127,8 @@ public interface Subscription {
     static boolean isIndividualAckMode(SubType subType) {
         return SubType.Shared.equals(subType) || SubType.Key_Shared.equals(subType);
     }
+
+    default void consumerPop(Consumer consumer, int additionalNumberOfMessages){
+
+    }
 }

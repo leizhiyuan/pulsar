@@ -221,6 +221,112 @@ public class PersistentDispatcherMultipleConsumers extends AbstractDispatcherMul
         readMoreEntries();
     }
 
+    @Override
+    public synchronized void consumerPop(Consumer consumer, int additionalNumberOfMessages) {
+        if (!consumerSet.contains(consumer)) {
+            if (log.isDebugEnabled()) {
+                log.debug("[{}] Ignoring flow control from disconnected consumer {}", name, consumer);
+            }
+            return;
+        }
+
+        totalAvailablePermits += additionalNumberOfMessages;
+
+        if (log.isDebugEnabled()) {
+            log.debug("[{}-{}] Trigger new read after receiving flow control message with permits {} "
+                            + "after adding {} permits", name, consumer,
+                    totalAvailablePermits, additionalNumberOfMessages);
+        }
+        readMoreEntries(consumer);
+    }
+
+    public synchronized void readMoreEntries(Consumer consumer) {
+        // totalAvailablePermits may be updated by other threads
+        int firstAvailableConsumerPermits = getFirstAvailableConsumerPermits();
+        int currentTotalAvailablePermits = Math.max(totalAvailablePermits, firstAvailableConsumerPermits);
+        if (currentTotalAvailablePermits > 0 && firstAvailableConsumerPermits > 0) {
+            Pair<Integer, Long> calculateResult = calculateToRead(currentTotalAvailablePermits);
+            int messagesToRead = calculateResult.getLeft();
+            long bytesToRead = calculateResult.getRight();
+
+            if (messagesToRead == -1 || bytesToRead == -1) {
+                // Skip read as topic/dispatcher has exceed the dispatch rate or previous pending read hasn't complete.
+                return;
+            }
+
+            Set<PositionImpl> messagesToReplayNow = getMessagesToReplayNow(messagesToRead);
+
+            if (!messagesToReplayNow.isEmpty()) {
+                if (log.isDebugEnabled()) {
+                    log.debug("[{}] Schedule replay of {} messages for {} consumers", name, messagesToReplayNow.size(),
+                            consumerList.size());
+                }
+
+                havePendingReplayRead = true;
+                minReplayedPosition = messagesToReplayNow.stream().min(PositionImpl::compareTo).orElse(null);
+                Set<? extends Position> deletedMessages = topic.isDelayedDeliveryEnabled()
+                        ? asyncReplayEntriesInOrder(messagesToReplayNow) : asyncReplayEntries(messagesToReplayNow);
+                // clear already acked positions from replay bucket
+
+                deletedMessages.forEach(position -> redeliveryMessages.remove(((PositionImpl) position).getLedgerId(),
+                        ((PositionImpl) position).getEntryId()));
+                // if all the entries are acked-entries and cleared up from redeliveryMessages, try to read
+                // next entries as readCompletedEntries-callback was never called
+                if ((messagesToReplayNow.size() - deletedMessages.size()) == 0) {
+                    havePendingReplayRead = false;
+                    // We should not call readMoreEntries() recursively in the same thread
+                    // as there is a risk of StackOverflowError
+                    topic.getBrokerService().executor().execute(() -> readMoreEntries(consumer));
+                }
+            } else if (BLOCKED_DISPATCHER_ON_UNACKMSG_UPDATER.get(this) == TRUE) {
+                log.warn("[{}] Dispatcher read is blocked due to unackMessages {} reached to max {}", name,
+                        totalUnackedMessages, topic.getMaxUnackedMessagesOnSubscription());
+            } else if (!havePendingRead) {
+                if (log.isDebugEnabled()) {
+                    log.debug("[{}] Schedule read of {} messages for {} consumers", name, messagesToRead,
+                            consumerList.size());
+                }
+                havePendingRead = true;
+                minReplayedPosition = getMessagesToReplayNow(1).stream().findFirst().orElse(null);
+
+                PopReadContext readContext=new PopReadContext();
+
+                readContext.setReadType(ReadType.Normal);
+                readContext.setConsumer(consumer);
+
+                cursor.asyncReadEntriesOrWait(messagesToRead, bytesToRead, this,
+                        readContext, topic.getMaxReadPosition());
+            } else {
+                log.debug("[{}] Cannot schedule next read until previous one is done", name);
+            }
+        } else {
+            if (log.isDebugEnabled()) {
+                log.debug("[{}] Consumer buffer is full, pause reading", name);
+            }
+        }
+    }
+
+    public static class PopReadContext{
+        private ReadType readType;
+        private Consumer consumer;
+
+        public ReadType getReadType() {
+            return readType;
+        }
+
+        public void setReadType(ReadType readType) {
+            this.readType = readType;
+        }
+
+        public Consumer getConsumer() {
+            return consumer;
+        }
+
+        public void setConsumer(Consumer consumer) {
+            this.consumer = consumer;
+        }
+    }
+
     public synchronized void readMoreEntries() {
         // totalAvailablePermits may be updated by other threads
         int firstAvailableConsumerPermits = getFirstAvailableConsumerPermits();
@@ -460,7 +566,14 @@ public class PersistentDispatcherMultipleConsumers extends AbstractDispatcherMul
 
     @Override
     public synchronized void readEntriesComplete(List<Entry> entries, Object ctx) {
-        ReadType readType = (ReadType) ctx;
+        Consumer consumer = null;
+        ReadType readType;
+        if (ctx instanceof PopReadContext){
+            readType=((PopReadContext) ctx).readType;
+            consumer=((PopReadContext) ctx).consumer;
+        }else{
+            readType = (ReadType) ctx;
+        }
         if (readType == ReadType.Normal) {
             havePendingRead = false;
         } else {
@@ -491,9 +604,134 @@ public class PersistentDispatcherMultipleConsumers extends AbstractDispatcherMul
             log.debug("[{}] Distributing {} messages to {} consumers", name, entries.size(), consumerList.size());
         }
 
-        sendMessagesToConsumers(readType, entries);
+        if (consumer!=null){
+            sendMessagesToConsumers(readType, entries,consumer);
+
+        }else{
+            sendMessagesToConsumers(readType, entries);
+        }
     }
 
+    protected void sendMessagesToConsumers(ReadType readType, List<Entry> entries,Consumer consumer) {
+        if (needTrimAckedMessages()) {
+            cursor.trimDeletedEntries(entries);
+        }
+
+        int entriesToDispatch = entries.size();
+        // Trigger read more messages
+        if (entriesToDispatch == 0) {
+            readMoreEntries();
+            return;
+        }
+        EntryWrapper[] entryWrappers = new EntryWrapper[entries.size()];
+        int remainingMessages = updateEntryWrapperWithMetadata(entryWrappers, entries);
+        int start = 0;
+        long totalMessagesSent = 0;
+        long totalBytesSent = 0;
+        long totalEntries = 0;
+        int avgBatchSizePerMsg = remainingMessages > 0 ? Math.max(remainingMessages / entries.size(), 1) : 1;
+
+        int firstAvailableConsumerPermits, currentTotalAvailablePermits;
+        boolean dispatchMessage;
+        while (entriesToDispatch > 0) {
+            firstAvailableConsumerPermits = getFirstAvailableConsumerPermits();
+            currentTotalAvailablePermits = Math.max(totalAvailablePermits, firstAvailableConsumerPermits);
+            dispatchMessage = currentTotalAvailablePermits > 0 && firstAvailableConsumerPermits > 0;
+            if (!dispatchMessage) {
+                break;
+            }
+            Consumer c = consumer;
+            if (c == null) {
+                // Do nothing, cursor will be rewind at reconnection
+                log.info("[{}] rewind because no available consumer found from total {}", name, consumerList.size());
+                entries.subList(start, entries.size()).forEach(Entry::release);
+                cursor.rewind();
+                return;
+            }
+
+            // round-robin dispatch batch size for this consumer
+            int availablePermits = c.isWritable() ? c.getAvailablePermits() : 1;
+            if (log.isDebugEnabled() && !c.isWritable()) {
+                log.debug("[{}-{}] consumer is not writable. dispatching only 1 message to {}; "
+                                + "availablePermits are {}", topic.getName(), name,
+                        c, c.getAvailablePermits());
+            }
+
+            int messagesForC = Math.min(Math.min(remainingMessages, availablePermits),
+                    serviceConfig.getDispatcherMaxRoundRobinBatchSize());
+            messagesForC = Math.max(messagesForC / avgBatchSizePerMsg, 1);
+
+            if (messagesForC > 0) {
+                int end = Math.min(start + messagesForC, entries.size());
+                // remove positions first from replay list first : sendMessages recycles entries
+                if (readType == ReadType.Replay) {
+                    entries.subList(start, end).forEach(entry -> {
+                        redeliveryMessages.remove(entry.getLedgerId(), entry.getEntryId());
+                    });
+                }
+
+                SendMessageInfo sendMessageInfo = SendMessageInfo.getThreadLocal();
+                List<Entry> entriesForThisConsumer = entries.subList(start, end);
+
+                EntryBatchSizes batchSizes = EntryBatchSizes.get(entriesForThisConsumer.size());
+                EntryBatchIndexesAcks batchIndexesAcks = EntryBatchIndexesAcks.get(entriesForThisConsumer.size());
+                totalEntries += filterEntriesForConsumer(Optional.ofNullable(entryWrappers), start,
+                        entriesForThisConsumer, batchSizes, sendMessageInfo, batchIndexesAcks, cursor,
+                        readType == ReadType.Replay);
+
+                c.sendMessages(entriesForThisConsumer, batchSizes, batchIndexesAcks, sendMessageInfo.getTotalMessages(),
+                        sendMessageInfo.getTotalBytes(), sendMessageInfo.getTotalChunkedMessages(), redeliveryTracker);
+
+                int msgSent = sendMessageInfo.getTotalMessages();
+                remainingMessages -= msgSent;
+                start += messagesForC;
+                entriesToDispatch -= messagesForC;
+                TOTAL_AVAILABLE_PERMITS_UPDATER.addAndGet(this,
+                        -(msgSent - batchIndexesAcks.getTotalAckedIndexCount()));
+                if (log.isDebugEnabled()){
+                    log.debug("[{}] Added -({} minus {}) permits to TOTAL_AVAILABLE_PERMITS_UPDATER in "
+                                    + "PersistentDispatcherMultipleConsumers",
+                            name, msgSent, batchIndexesAcks.getTotalAckedIndexCount());
+                }
+                totalMessagesSent += sendMessageInfo.getTotalMessages();
+                totalBytesSent += sendMessageInfo.getTotalBytes();
+            }
+        }
+
+        // release entry-wrapper
+        for (EntryWrapper entry : entryWrappers) {
+            if (entry != null) {
+                entry.recycle();
+            }
+        }
+
+        // acquire message-dispatch permits for already delivered messages
+        long permits = dispatchThrottlingOnBatchMessageEnabled ? totalEntries : totalMessagesSent;
+        if (serviceConfig.isDispatchThrottlingOnNonBacklogConsumerEnabled() || !cursor.isActive()) {
+            if (topic.getBrokerDispatchRateLimiter().isPresent()) {
+                topic.getBrokerDispatchRateLimiter().get().tryDispatchPermit(permits, totalBytesSent);
+            }
+            if (topic.getDispatchRateLimiter().isPresent()) {
+                topic.getDispatchRateLimiter().get().tryDispatchPermit(permits, totalBytesSent);
+            }
+
+            if (dispatchRateLimiter.isPresent()) {
+                dispatchRateLimiter.get().tryDispatchPermit(permits, totalBytesSent);
+            }
+        }
+
+        if (entriesToDispatch > 0) {
+            if (log.isDebugEnabled()) {
+                log.debug("[{}] No consumers found with available permits, storing {} positions for later replay", name,
+                        entries.size() - start);
+            }
+            entries.subList(start, entries.size()).forEach(entry -> {
+                long stickyKeyHash = getStickyKeyHash(entry);
+                addMessageToReplay(entry.getLedgerId(), entry.getEntryId(), stickyKeyHash);
+                entry.release();
+            });
+        }
+    }
     protected void sendMessagesToConsumers(ReadType readType, List<Entry> entries) {
 
         if (needTrimAckedMessages()) {

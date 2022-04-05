@@ -681,6 +681,32 @@ public class Consumer {
 
     }
 
+    public void popPermits(int additionalNumberOfMessages) {
+        checkArgument(additionalNumberOfMessages > 0);
+
+        // block shared consumer when unacked-messages reaches limit
+        if (shouldBlockConsumerOnUnackMsgs() && unackedMessages >= getMaxUnackedMessages()) {
+            blockedConsumerOnUnackedMsgs = true;
+        }
+        int oldPermits;
+        if (!blockedConsumerOnUnackedMsgs) {
+            oldPermits = MESSAGE_PERMITS_UPDATER.getAndAdd(this, additionalNumberOfMessages);
+            if (log.isDebugEnabled()) {
+                log.debug("[{}-{}] Added {} message permits in broker.service.Consumer before updating dispatcher "
+                        + "for consumer {}", topicName, subscription, additionalNumberOfMessages, consumerId);
+            }
+            subscription.consumerPop(this, additionalNumberOfMessages);
+        } else {
+            oldPermits = PERMITS_RECEIVED_WHILE_CONSUMER_BLOCKED_UPDATER.getAndAdd(this, additionalNumberOfMessages);
+        }
+
+        if (log.isDebugEnabled()) {
+            log.debug("[{}-{}] Added more flow control message permits {} (old was: {}), blocked = {} ", topicName,
+                    subscription, additionalNumberOfMessages, oldPermits, blockedConsumerOnUnackedMsgs);
+        }
+
+    }
+
     /**
      * Triggers dispatcher to dispatch {@code blockedPermits} number of messages and adds same number of permits to
      * {@code messagePermits} as it maintains count of actual dispatched message-permits.

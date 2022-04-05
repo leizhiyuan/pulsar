@@ -170,8 +170,8 @@ public abstract class MockedPulsarServiceBaseTest extends TestRetrySupport {
 
     protected void doInitConf() throws Exception {
         this.conf.setBrokerShutdownTimeoutMs(0L);
-        this.conf.setBrokerServicePort(Optional.of(0));
-        this.conf.setBrokerServicePortTls(Optional.of(0));
+        //this.conf.setBrokerServicePort(Optional.of(0));
+        //this.conf.setBrokerServicePortTls(Optional.of(0));
         this.conf.setAdvertisedAddress("localhost");
         this.conf.setWebServicePort(Optional.of(0));
         this.conf.setWebServicePortTls(Optional.of(0));
@@ -467,7 +467,7 @@ public abstract class MockedPulsarServiceBaseTest extends TestRetrySupport {
         configuration.setConfigurationMetadataStoreUrl("zk:localhost:3181");
         configuration.setAllowAutoTopicCreationType("non-partitioned");
         configuration.setBrokerShutdownTimeoutMs(0L);
-        configuration.setBrokerServicePort(Optional.of(0));
+      //  configuration.setBrokerServicePort(Optional.of(0));
         configuration.setBrokerServicePortTls(Optional.of(0));
         configuration.setWebServicePort(Optional.of(0));
         configuration.setWebServicePortTls(Optional.of(0));

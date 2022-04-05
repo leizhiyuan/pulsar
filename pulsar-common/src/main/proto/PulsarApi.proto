@@ -593,6 +593,15 @@ message CommandFlow {
     required uint32 messagePermits     = 2;
 }
 
+message CommandPop {
+    required uint64 consumer_id       = 1;
+
+    // Max number of messages to prefetch, in addition
+    // of any number previously specified
+    required uint32 messagePermits     = 2;
+}
+
+
 message CommandUnsubscribe {
     required uint64 consumer_id = 1;
     required uint64 request_id  = 2;
@@ -962,6 +971,8 @@ message BaseCommand {
         GET_OR_CREATE_SCHEMA = 39;
         GET_OR_CREATE_SCHEMA_RESPONSE = 40;
 
+        POP = 41;
+
         // transaction related
         NEW_TXN = 50;
         NEW_TXN_RESPONSE = 51;
@@ -1043,6 +1054,9 @@ message BaseCommand {
 
     optional CommandGetOrCreateSchema getOrCreateSchema = 39;
     optional CommandGetOrCreateSchemaResponse getOrCreateSchemaResponse = 40;
+
+    optional CommandPop pop                = 41;
+
 
     // transaction related
     optional CommandNewTxn newTxn = 50;

@@ -32,26 +32,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NonNull;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.pulsar.client.api.BatchReceivePolicy;
-import org.apache.pulsar.client.api.Consumer;
-import org.apache.pulsar.client.api.ConsumerBuilder;
-import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
-import org.apache.pulsar.client.api.ConsumerEventListener;
-import org.apache.pulsar.client.api.ConsumerInterceptor;
-import org.apache.pulsar.client.api.CryptoKeyReader;
-import org.apache.pulsar.client.api.DeadLetterPolicy;
-import org.apache.pulsar.client.api.KeySharedPolicy;
-import org.apache.pulsar.client.api.MessageCrypto;
-import org.apache.pulsar.client.api.MessageListener;
-import org.apache.pulsar.client.api.MessagePayloadProcessor;
-import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.*;
 import org.apache.pulsar.client.api.PulsarClientException.InvalidConfigurationException;
-import org.apache.pulsar.client.api.RedeliveryBackoff;
-import org.apache.pulsar.client.api.RegexSubscriptionMode;
-import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.client.api.SubscriptionInitialPosition;
-import org.apache.pulsar.client.api.SubscriptionMode;
-import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.impl.conf.ConfigurationDataUtils;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 import org.apache.pulsar.client.util.RetryMessageUtil;
@@ -528,6 +510,12 @@ public class ConsumerBuilderImpl<T> implements ConsumerBuilder<T> {
     @Override
     public ConsumerBuilder<T> startPaused(boolean paused) {
         conf.setStartPaused(paused);
+        return this;
+    }
+
+    @Override
+    public ConsumerBuilder<T> consumeMode(ConsumeMode consumeMode) {
+        conf.setConsumeMode(consumeMode);
         return this;
     }
 }

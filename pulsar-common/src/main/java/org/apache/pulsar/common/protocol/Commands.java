@@ -1043,6 +1043,15 @@ public class Commands {
         return serializeWithSize(cmd);
     }
 
+    public static ByteBuf newPop(long consumerId, int messagePermits) {
+        BaseCommand cmd = localCmd(Type.POP);
+        cmd.setPop()
+                .setConsumerId(consumerId)
+                .setMessagePermits(messagePermits);
+        return serializeWithSize(cmd);
+    }
+
+
     public static ByteBuf newRedeliverUnacknowledgedMessages(long consumerId, long consumerEpoch) {
         BaseCommand cmd = localCmd(Type.REDELIVER_UNACKNOWLEDGED_MESSAGES);
         cmd.setRedeliverUnacknowledgedMessages()

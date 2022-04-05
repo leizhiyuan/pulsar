@@ -798,4 +798,19 @@ public interface ConsumerBuilder<T> extends Cloneable {
      * @default false
      */
     ConsumerBuilder<T> startPaused(boolean paused);
+
+    /**
+     * Select the subscription mode to be used when subscribing to the topic.
+     *
+     * <p>Options are:
+     * <ul>
+     *  <li>{@link SubscriptionMode#Durable} (Default)</li>
+     *  <li>{@link SubscriptionMode#NonDurable}</li>
+     * </ul>
+     *
+     * @param subscriptionMode
+     *            the subscription mode value
+     * @return the consumer builder instance
+     */
+    ConsumerBuilder<T> consumeMode(ConsumeMode consumeMode);
 }
