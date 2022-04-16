@@ -599,6 +599,8 @@ message CommandPop {
     // Max number of messages to prefetch, in addition
     // of any number previously specified
     required uint32 messagePermits     = 2;
+
+    required bool is_hold = 3;
 }
 
 

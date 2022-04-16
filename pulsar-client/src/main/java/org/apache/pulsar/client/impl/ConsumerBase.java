@@ -65,6 +65,7 @@ import org.apache.pulsar.common.util.collections.ConcurrentOpenHashMap;
 import org.apache.pulsar.common.util.collections.GrowableArrayBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sun.misc.VM;
 
 public abstract class ConsumerBase<T> extends HandlerState implements Consumer<T> {
 
@@ -187,7 +188,6 @@ public abstract class ConsumerBase<T> extends HandlerState implements Consumer<T
     }
 
     protected abstract Message<T> internalReceive() throws PulsarClientException;
-
     protected abstract CompletableFuture<Message<T>> internalReceiveAsync();
 
     @Override
@@ -773,7 +773,11 @@ public abstract class ConsumerBase<T> extends HandlerState implements Consumer<T
 
     protected boolean enqueueMessageAndCheckBatchReceive(Message<T> message) {
         int messageSize = message.size();
+
+
         if (canEnqueueMessage(message) && incomingMessages.offer(message)) {
+
+            log.info("debug  put message" + this.consumerName + "," + this.incomingMessages.hashCode());
             // After we have enqueued the messages on `incomingMessages` queue, we cannot touch the message instance
             // anymore, since for pooled messages, this instance was possibly already been released and recycled.
             INCOMING_MESSAGES_SIZE_UPDATER.addAndGet(this, messageSize);

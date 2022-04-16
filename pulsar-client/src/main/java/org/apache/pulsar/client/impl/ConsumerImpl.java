@@ -951,36 +951,18 @@ public class ConsumerImpl<T> extends ConsumerBase<T> implements ConnectionHandle
     }
 
     @Override
-    public Message<T> pop() throws PulsarClientException {
-        Message message = this.sendPopToBroker(this.cnx(), 1);
+    public Message<T> pop(long timeout,TimeUnit timeUnit) throws PulsarClientException {
+        Message message = this.sendPopToBroker(this.cnx(), 1,false,timeout,timeUnit);
         return message;
     }
 
     /**
      * send the flow command to have the broker start pushing messages.
      */
-    public Message sendPopToBroker(ClientCnx cnx, int numMessages) {
-        if (cnx != null && numMessages > 0) {
-            if (log.isDebugEnabled()) {
-                log.debug("[{}] [{}] Adding {} additional permits", topic, subscription, numMessages);
-            }
-            if (log.isDebugEnabled()) {
-                cnx.ctx().writeAndFlush(Commands.newPop(consumerId, numMessages))
-                        .addListener(writeFuture -> {
-                            if (!writeFuture.isSuccess()) {
-                                log.debug("Consumer {} failed to send {} permits to broker: {}",
-                                        consumerId, numMessages, writeFuture.cause().getMessage());
-                            } else {
-                                log.debug("Consumer {} sent {} permits to broker", consumerId, numMessages);
-                            }
-                        });
-            } else {
-                cnx.ctx().writeAndFlush(Commands.newPop(consumerId, numMessages), cnx.ctx().voidPromise());
-            }
-        }
+    public Message sendPopToBroker(ClientCnx cnx, int numMessages, boolean isHold,long timeout,TimeUnit timeUnit) {
         Message<T> message = null;
         try {
-            message = internalReceive();
+            message = internalReceive(timeout,timeUnit);
         } catch (PulsarClientException e) {
             e.printStackTrace();
         }

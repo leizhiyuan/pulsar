@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -18,21 +18,27 @@
  */
 package org.apache.pulsar.client.impl;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import lombok.Cleanup;
-import org.apache.pulsar.client.api.*;
+import org.apache.pulsar.client.admin.PulsarAdminException;
+import org.apache.pulsar.client.api.ConsumeMode;
+import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.ProducerConsumerBase;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.impl.transaction.TransactionImpl;
-import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-import static org.testng.Assert.fail;
 
 @Test(groups = "broker-impl")
 public class ConsumerPopTest extends ProducerConsumerBase {
@@ -62,38 +68,41 @@ public class ConsumerPopTest extends ProducerConsumerBase {
     @Test
     public void testPop() throws PulsarClientException, InterruptedException {
         String topic = "testAckResponse";
+        try {
+            admin.topics().createPartitionedTopic(topic, 3);
+        } catch (PulsarAdminException e) {
+            throw new RuntimeException(e);
+        }
+
         @Cleanup
         Producer<Integer> producer = pulsarClient.newProducer(Schema.INT32)
                 .topic(topic)
                 .enableBatching(false)
                 .create();
         @Cleanup
-        ConsumerImpl<Integer> consumer = (ConsumerImpl<Integer>) pulsarClient.newConsumer(Schema.INT32)
+        Consumer<Integer> consumer = pulsarClient.newConsumer(Schema.INT32)
                 .topic(topic)
                 .subscriptionName("sub")
                 .subscriptionType(SubscriptionType.Shared)
                 .ackTimeout(1, TimeUnit.SECONDS)
                 .consumeMode(ConsumeMode.Pop)
+                .receiverQueueSize(0)
                 .subscribe();
 
-        /*
-        MessageId messageId = producer.send(1);
-        System.out.println("send message" + messageId);
-        MessageId messageId2=producer.send(2);
-        System.out.println("send message" + messageId2);
-        */
+        for (int i =0;i<10;i++) {
+            MessageId messageId = producer.send(1);
+            System.out.println("send message" + messageId);
+        }
 
-
-        Message<Integer> message = consumer.pop();
-
-        System.out.println(message.getMessageId());
-        consumer.acknowledge(message);
-
-        Message<Integer> message2 = consumer.pop();
-        System.out.println(message2.getMessageId());
-        consumer.acknowledge(message2);
-
+        for (int i =0;i<10;i++) {
+            Message<Integer> message = consumer.pop(5, TimeUnit.SECONDS);
+            System.out.println("result" + message.getMessageId());
+            String par = message.getMessageId().toString().split(":")[2];
+            TopicMessageIdImpl topicMessageId =
+                    new TopicMessageIdImpl("persistent://public/default/testAckResponse-partition-"+ par,
+                            "persistent://public/default/testAckResponse", message.getMessageId());
+            consumer.acknowledge(topicMessageId);
+        }
         TimeUnit.SECONDS.sleep(10000);
-
     }
 }

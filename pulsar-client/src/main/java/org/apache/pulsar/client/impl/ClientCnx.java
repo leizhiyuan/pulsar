@@ -461,6 +461,7 @@ public class ClientCnx extends PulsarHandler {
         }
         ConsumerImpl<?> consumer = consumers.get(cmdMessage.getConsumerId());
         if (consumer != null) {
+            log.info("debug receive me " + cmdMessage.getConsumerId() +  consumer.getClass().getCanonicalName());
             consumer.messageReceived(cmdMessage, headersAndPayload, this);
         }
     }

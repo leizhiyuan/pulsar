@@ -773,5 +773,5 @@ public interface Consumer<T> extends Closeable {
      */
     long getLastDisconnectedTimestamp();
 
-    Message<T> pop() throws PulsarClientException;
+    Message<T> pop(long timeout,TimeUnit timeUnit) throws PulsarClientException;
 }

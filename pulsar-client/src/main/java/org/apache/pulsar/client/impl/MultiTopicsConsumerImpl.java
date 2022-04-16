@@ -21,6 +21,7 @@ package org.apache.pulsar.client.impl;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.Lists;
@@ -50,6 +51,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.pulsar.client.api.ConsumeMode;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerStats;
 import org.apache.pulsar.client.api.Message;
@@ -132,8 +134,8 @@ public class MultiTopicsConsumerImpl<T> extends ConsumerBase<T> {
         super(client, singleTopic, conf, Math.max(2, conf.getReceiverQueueSize()), executorProvider, subscribeFuture,
                 schema, interceptors);
 
-        checkArgument(conf.getReceiverQueueSize() > 0,
-            "Receiver queue size needs to be greater than 0 for Topics Consumer");
+      //  checkArgument(conf.getReceiverQueueSize() > 0,
+        //"Receiver queue size needs to be greater than 0 for Topics Consumer");
 
         this.partitionedTopics = new ConcurrentHashMap<>();
         this.consumers = new ConcurrentHashMap<>();
@@ -232,6 +234,12 @@ public class MultiTopicsConsumerImpl<T> extends ConsumerBase<T> {
     }
 
     private void startReceivingMessages(List<ConsumerImpl<T>> newConsumers) {
+
+
+        if (this.conf.getConsumeMode()== ConsumeMode.Pop){
+            return;
+        }
+
         if (log.isDebugEnabled()) {
             log.debug("[{}] startReceivingMessages for {} new consumers in topics consumer, state: {}",
                 topic, newConsumers.size(), getState());
@@ -1288,8 +1296,45 @@ public class MultiTopicsConsumerImpl<T> extends ConsumerBase<T> {
     }
 
     @Override
-    public Message<T> pop() throws PulsarClientException {
-        return null;
+    public Message<T> pop(long timeout, TimeUnit timeUnit) throws PulsarClientException {
+        long escaped = 0;
+        //这里做一个计算时间
+        Stopwatch sw = Stopwatch.createUnstarted();
+
+        for (Map.Entry<String, ConsumerImpl<T>> en : consumers.entrySet()) {
+            System.out.println("invoke once " + escaped + en.getKey());
+
+            if (timeout - escaped <= 0) {
+                break;
+            }
+            sw.start();
+            Message message = en.getValue().sendPopToBroker(en.getValue().cnx(), 1, false, 1, timeUnit);
+            escaped += sw.elapsed(timeUnit);
+
+            sw.reset();
+            if (message != null) {
+                return message;
+            }
+        }
+
+
+        // hold for one
+        long nextWait = timeout - escaped;
+        if (nextWait <= 0) {
+            throw new PulsarClientException("timeout wait message");
+        }
+
+        ConsumerImpl<T> consumer = fetchMyConsumer(consumers);
+
+
+        Message message = consumer.sendPopToBroker(consumer.cnx(), 1, true, nextWait, timeUnit);
+
+        return message;
+    }
+
+    private ConsumerImpl<T> fetchMyConsumer(ConcurrentHashMap<String, ConsumerImpl<T>> consumers) {
+        return consumers.entrySet().iterator().next().getValue();
+
     }
 
     // This listener is triggered when topics partitions are updated.

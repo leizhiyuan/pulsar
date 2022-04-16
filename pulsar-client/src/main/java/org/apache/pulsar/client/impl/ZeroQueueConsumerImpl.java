@@ -23,6 +23,7 @@ import io.netty.buffer.ByteBuf;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import lombok.extern.slf4j.Slf4j;
@@ -35,8 +36,10 @@ import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 import org.apache.pulsar.client.util.ExecutorProvider;
 import org.apache.pulsar.common.api.proto.BrokerEntryMetadata;
+import org.apache.pulsar.common.api.proto.CommandMessage;
 import org.apache.pulsar.common.api.proto.MessageIdData;
 import org.apache.pulsar.common.api.proto.MessageMetadata;
+import org.apache.pulsar.common.protocol.Commands;
 
 @Slf4j
 public class ZeroQueueConsumerImpl<T> extends ConsumerImpl<T> {
@@ -67,6 +70,99 @@ public class ZeroQueueConsumerImpl<T> extends ConsumerImpl<T> {
             zeroQueueLock.unlock();
         }
     }
+
+    @Override
+    protected Message<T> internalReceive(long timeout, TimeUnit unit) throws PulsarClientException {
+        zeroQueueLock.lock();
+        try {
+            Message<T> msg = fetchSingleMessageFromBroker(timeout, unit);
+            trackMessage(msg);
+            return beforeConsume(msg);
+        } finally {
+            zeroQueueLock.unlock();
+        }
+    }
+
+
+    private void doPopMessage(ClientCnx cnx){
+
+        int numMessages = 1;
+        if (cnx != null && numMessages > 0) {
+            if (log.isDebugEnabled()) {
+                log.debug("[{}] [{}] Adding {} additional permits", topic, subscription, numMessages);
+            }
+            if (log.isDebugEnabled()) {
+                cnx.ctx().writeAndFlush(Commands.newPop(consumerId, numMessages))
+                        .addListener(writeFuture -> {
+                            if (!writeFuture.isSuccess()) {
+                                log.debug("Consumer {} failed to send {} permits to broker: {}",
+                                        consumerId, numMessages, writeFuture.cause().getMessage());
+                            } else {
+                                log.debug("Consumer {} sent {} permits to broker", consumerId, numMessages);
+                            }
+                        });
+            } else {
+                cnx.ctx().writeAndFlush(Commands.newPop(consumerId, numMessages), cnx.ctx().voidPromise());
+            }
+        }
+
+        log.info("send pop " + this.getConsumerName());
+    }
+
+    @Override
+    void messageReceived(CommandMessage cmdMessage, ByteBuf headersAndPayload, ClientCnx cnx) {
+        super.messageReceived(cmdMessage, headersAndPayload, cnx);
+    }
+
+    private Message<T> fetchSingleMessageFromBroker(long timeout, TimeUnit unit) throws PulsarClientException{
+        // Just being cautious
+        if (incomingMessages.size() > 0) {
+            log.error("The incoming message queue should never be greater than 0 when Queue size is 0");
+            incomingMessages.forEach(Message::release);
+            incomingMessages.clear();
+        }
+
+        Message<T> message;
+        try {
+            // if cnx is null or if the connection breaks the connectionOpened function will send the flow again
+            waitingOnReceiveForZeroQueueSize = true;
+            synchronized (this) {
+                if (isConnected()) {
+                    doPopMessage(cnx());
+                }
+            }
+            log.info("start message is null" + this.getConsumerName() +","+ this.incomingMessages.hashCode());
+            message = incomingMessages.poll(timeout,unit);
+
+            if (message==null){
+              log.info("message is null" + this + this.getClass().getCanonicalName());
+                return null;
+            }
+
+            lastDequeuedMessageId = message.getMessageId();
+            ClientCnx msgCnx = ((MessageImpl<?>) message).getCnx();
+            // synchronized need to prevent race between connectionOpened and the check "msgCnx == cnx()"
+            synchronized (this) {
+                // if message received due to an old flow - discard it and wait for the message from the
+                // latest flow command
+                if (msgCnx == cnx()) {
+                    waitingOnReceiveForZeroQueueSize = false;
+                }
+            }
+
+            stats.updateNumMsgsReceived(message);
+            return message;
+        } catch (InterruptedException e) {
+            stats.incrementNumReceiveFailed();
+            throw PulsarClientException.unwrap(e);
+        } finally {
+            // Finally blocked is invoked in case the block on incomingMessages is interrupted
+            waitingOnReceiveForZeroQueueSize = false;
+            // Clearing the queue in case there was a race with messageReceived
+            incomingMessages.clear();
+        }
+    }
+
 
     @Override
     protected CompletableFuture<Message<T>> internalReceiveAsync() {
