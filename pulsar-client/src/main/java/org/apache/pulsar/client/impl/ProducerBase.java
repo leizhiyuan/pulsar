@@ -59,7 +59,17 @@ public abstract class ProducerBase<T> extends HandlerState implements Producer<T
 
     @Override
     public MessageId send(T message) throws PulsarClientException {
-        return newMessage().value(message).send();
+        MessageId messageId = null;
+        for (int i = 0; i < 1 + conf.getRetryTimesWhenSendFailed(); i++) {
+            try {
+                messageId = newMessage().value(message).send();
+            } catch (PulsarClientException e) {
+                if (i == conf.getRetryTimesWhenSendFailed()) {
+                    throw e;
+                }
+            }
+        }
+        return messageId;
     }
 
     @Override
@@ -98,20 +108,28 @@ public abstract class ProducerBase<T> extends HandlerState implements Producer<T
     abstract CompletableFuture<MessageId> internalSendWithTxnAsync(Message<?> message, Transaction txn);
 
     public MessageId send(Message<?> message) throws PulsarClientException {
-        try {
-            // enqueue the message to the buffer
-            CompletableFuture<MessageId> sendFuture = internalSendAsync(message);
+        MessageId messageId = null;
+        for (int i = 0; i < 1 + conf.getRetryTimesWhenSendFailed(); i++) {
+            try {
+                // enqueue the message to the buffer
+                CompletableFuture<MessageId> sendFuture = internalSendAsync(message);
 
-            if (!sendFuture.isDone()) {
-                // the send request wasn't completed yet (e.g. not failing at enqueuing), then attempt to triggerFlush
-                // it out
-                triggerFlush();
+                if (!sendFuture.isDone()) {
+                    // the send request wasn't completed yet (e.g. not failing at enqueuing), then attempt to
+                    // triggerFlush
+                    // it out
+                    triggerFlush();
+                }
+
+                return sendFuture.get();
+            } catch (Exception e) {
+                if (i == conf.getRetryTimesWhenSendFailed()) {
+                    throw PulsarClientException.unwrap(e);
+                }
             }
-
-            return sendFuture.get();
-        } catch (Exception e) {
-            throw PulsarClientException.unwrap(e);
         }
+
+        return messageId;
     }
 
     @Override

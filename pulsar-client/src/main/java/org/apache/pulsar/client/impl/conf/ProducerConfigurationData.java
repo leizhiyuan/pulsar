@@ -105,6 +105,13 @@ public class ProducerConfigurationData implements Serializable, Cloneable {
     private String initialSubscriptionName = null;
 
     /**
+     * Maximum number of retry to perform internally before claiming sending failure in synchronous mode. </p>
+     *
+     * This may potentially cause message duplication which is up to application developers to resolve.
+     */
+    private int retryTimesWhenSendFailed = 0;
+
+    /**
      *
      * Returns true if encryption keys are added.
      *
