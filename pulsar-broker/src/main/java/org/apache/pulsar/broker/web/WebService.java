@@ -226,10 +226,6 @@ public class WebService implements AutoCloseable {
                 authenticationFilterHolder = null;
             }
 
-            if (config.isDisableHttpDebugMethods()) {
-                filterHolders.add(new FilterHolder(new DisableDebugHttpMethodFilter(config)));
-            }
-
             if (config.getHttpMaxRequestSize() > 0) {
                 filterHolders.add(new FilterHolder(
                         new MaxRequestSizeFilter(
@@ -255,6 +251,9 @@ public class WebService implements AutoCloseable {
         ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
         // Notice: each context path should be unique, but there's nothing here to verify that
         context.setContextPath(path);
+        if (this.pulsar.getConfiguration().isDisableHttpDebugMethods()) {
+            HttpSecurityProcessor.disableHttpDebugMethod(context, MATCH_ALL);
+        }
         context.addServlet(servletHolder, MATCH_ALL);
         if (attributeMap != null) {
             attributeMap.forEach((key, value) -> {

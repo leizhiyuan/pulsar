@@ -281,14 +281,14 @@ public class WebServiceTest {
         Response res = builder.execute().get();
 
         // This should have failed
-        assertEquals(res.getStatusCode(), 405);
+        assertEquals(res.getStatusCode(), 403);
         
         builder = client.prepare("TRACK", url);
 
         res = builder.execute().get();
 
         // This should have failed
-        assertEquals(res.getStatusCode(), 405);
+        assertEquals(res.getStatusCode(), 403);
     }
 
     @Test
