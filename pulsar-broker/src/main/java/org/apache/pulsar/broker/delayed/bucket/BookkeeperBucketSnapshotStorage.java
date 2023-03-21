@@ -56,8 +56,8 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
     @Override
     public CompletableFuture<Long> createBucketSnapshot(SnapshotMetadata snapshotMetadata,
                                                         List<SnapshotSegment> bucketSnapshotSegments,
-                                                        String bucketKey) {
-        return createLedger(bucketKey)
+                                                        String bucketKey, String topicName, String cursorName) {
+        return createLedger(bucketKey, topicName, cursorName)
                 .thenCompose(ledgerHandle -> addEntry(ledgerHandle, snapshotMetadata.toByteArray())
                         .thenCompose(__ -> addSnapshotSegments(ledgerHandle, bucketSnapshotSegments))
                         .thenCompose(__ -> closeLedger(ledgerHandle))
@@ -143,9 +143,10 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
     }
 
     @NotNull
-    private CompletableFuture<LedgerHandle> createLedger(String bucketKey) {
+    private CompletableFuture<LedgerHandle> createLedger(String bucketKey, String topicName, String cursorName) {
         CompletableFuture<LedgerHandle> future = new CompletableFuture<>();
-        Map<String, byte[]> metadata = LedgerMetadataUtils.buildMetadataForDelayedIndexBucket(bucketKey);
+        Map<String, byte[]> metadata = LedgerMetadataUtils.buildMetadataForDelayedIndexBucket(bucketKey,
+                topicName, cursorName);
         bookKeeper.asyncCreateLedger(
                 config.getManagedLedgerDefaultEnsembleSize(),
                 config.getManagedLedgerDefaultWriteQuorum(),
@@ -154,7 +155,7 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
                 LedgerPassword,
                 (rc, handle, ctx) -> {
                     if (rc != BKException.Code.OK) {
-                        future.completeExceptionally(bkException("Failed to create ledger", rc, -1));
+                        future.completeExceptionally(bkException("Create ledger", rc, -1));
                     } else {
                         future.complete(handle);
                     }
@@ -170,7 +171,7 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
                 LedgerPassword,
                 (rc, handle, ctx) -> {
                     if (rc != BKException.Code.OK) {
-                        future.completeExceptionally(bkException("Failed to open ledger", rc, ledgerId));
+                        future.completeExceptionally(bkException("Open ledger", rc, ledgerId));
                     } else {
                         future.complete(handle);
                     }
@@ -184,7 +185,7 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
         ledgerHandle.asyncClose((rc, handle, ctx) -> {
             if (rc != BKException.Code.OK) {
                 log.warn("Failed to close a Ledger Handle: {}", ledgerHandle.getId());
-                future.completeExceptionally(bkException("Failed to close ledger", rc, ledgerHandle.getId()));
+                future.completeExceptionally(bkException("Close ledger", rc, ledgerHandle.getId()));
             } else {
                 future.complete(null);
             }
@@ -197,7 +198,7 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
         ledgerHandle.asyncAddEntry(data,
                 (rc, handle, entryId, ctx) -> {
                     if (rc != BKException.Code.OK) {
-                        future.completeExceptionally(bkException("Failed to add entry", rc, ledgerHandle.getId()));
+                        future.completeExceptionally(bkException("Add entry", rc, ledgerHandle.getId()));
                     } else {
                         future.complete(null);
                     }
@@ -217,7 +218,7 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
         ledger.asyncReadEntries(firstEntryId, lastEntryId,
                 (rc, handle, entries, ctx) -> {
                     if (rc != BKException.Code.OK) {
-                        future.completeExceptionally(bkException("Failed to read entry", rc, ledger.getId()));
+                        future.completeExceptionally(bkException("Read entry", rc, ledger.getId()));
                     } else {
                         future.complete(entries);
                     }
@@ -231,7 +232,7 @@ public class BookkeeperBucketSnapshotStorage implements BucketSnapshotStorage {
         CompletableFuture<Void> future = new CompletableFuture<>();
         bookKeeper.asyncDeleteLedger(ledgerId, (int rc, Object cnx) -> {
             if (rc != BKException.Code.OK) {
-                future.completeExceptionally(bkException("Failed to delete ledger", rc, ledgerId));
+                future.completeExceptionally(bkException("Delete ledger", rc, ledgerId));
             } else {
                 future.complete(null);
             }

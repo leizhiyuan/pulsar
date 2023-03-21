@@ -26,6 +26,7 @@ import org.apache.bookkeeper.mledger.AsyncCallbacks.MarkDeleteCallback;
 import org.apache.bookkeeper.mledger.ManagedCursor;
 import org.apache.bookkeeper.mledger.ManagedLedgerException;
 import org.apache.bookkeeper.mledger.Position;
+import org.apache.pulsar.broker.service.Consumer;
 import org.apache.pulsar.common.api.proto.CommandAck.AckType;
 import org.apache.pulsar.compaction.CompactedTopic;
 import org.apache.pulsar.compaction.Compactor;
@@ -91,11 +92,11 @@ public class CompactorSubscription extends PersistentSubscription {
 
                 @Override
                 public void markDeleteFailed(ManagedLedgerException exception, Object ctx) {
-                    // TODO: cut consumer connection on markDeleteFailed
                     if (log.isDebugEnabled()) {
                         log.debug("[{}][{}] Failed to mark delete for position on compactor subscription {}",
                                 topicName, subName, ctx, exception);
                     }
+                    dispatcher.getConsumers().forEach(Consumer::disconnect);
                 }
             }, null);
         });

@@ -19,7 +19,6 @@
 package org.apache.pulsar.proxy.server;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
@@ -45,7 +44,6 @@ import java.util.function.Supplier;
 import javax.naming.AuthenticationException;
 import javax.net.ssl.SSLSession;
 import lombok.Getter;
-import org.apache.pulsar.PulsarVersion;
 import org.apache.pulsar.broker.PulsarServerException;
 import org.apache.pulsar.broker.authentication.AuthenticationProvider;
 import org.apache.pulsar.broker.authentication.AuthenticationState;
@@ -99,6 +97,7 @@ public class ProxyConnection extends PulsarHandler {
     String clientAuthRole;
     AuthData clientAuthData;
     String clientAuthMethod;
+    String clientVersion;
 
     private String authMethod = "none";
     AuthenticationProvider authenticationProvider;
@@ -311,13 +310,9 @@ public class ProxyConnection extends PulsarHandler {
         return channel.pipeline().get(ServiceChannelInitializer.TLS_HANDLER) != null;
     }
 
-    private synchronized void completeConnect(AuthData clientData) throws PulsarClientException {
+    private synchronized void completeConnect() throws PulsarClientException {
         Supplier<ClientCnx> clientCnxSupplier;
         if (service.getConfiguration().isAuthenticationEnabled()) {
-            if (service.getConfiguration().isForwardAuthorizationCredentials()) {
-                this.clientAuthData = clientData;
-                this.clientAuthMethod = authMethod;
-            }
             clientCnxSupplier = () -> new ProxyClientCnx(clientConf, service.getWorkerGroup(), clientAuthRole,
                     clientAuthData, clientAuthMethod, protocolVersionToAdvertise,
                     service.getConfiguration().isForwardAuthorizationCredentials(), this);
@@ -384,7 +379,7 @@ public class ProxyConnection extends PulsarHandler {
     }
 
     private void handleBrokerConnected(DirectProxyHandler directProxyHandler, CommandConnected connected) {
-        checkState(ctx.executor().inEventLoop(), "This method should be called in the event loop");
+        assert ctx.executor().inEventLoop();
         if (state == State.ProxyConnectingToBroker && ctx.channel().isOpen() && this.directProxyHandler == null) {
             this.directProxyHandler = directProxyHandler;
             state = State.ProxyConnectionToBroker;
@@ -405,7 +400,7 @@ public class ProxyConnection extends PulsarHandler {
     }
 
     private void connectToBroker(InetSocketAddress brokerAddress) {
-        checkState(ctx.executor().inEventLoop(), "This method should be called in the event loop");
+        assert ctx.executor().inEventLoop();
         DirectProxyHandler directProxyHandler = new DirectProxyHandler(service, this);
         directProxyHandler.connect(proxyToBrokerUrl, brokerAddress, protocolVersionToAdvertise);
     }
@@ -413,9 +408,12 @@ public class ProxyConnection extends PulsarHandler {
     public void brokerConnected(DirectProxyHandler directProxyHandler, CommandConnected connected) {
         try {
             final CommandConnected finalConnected = new CommandConnected().copyFrom(connected);
-            ctx.executor().execute(() -> handleBrokerConnected(directProxyHandler, finalConnected));
+            handleBrokerConnected(directProxyHandler, finalConnected);
         } catch (RejectedExecutionException e) {
             LOG.error("Event loop was already closed. Closing broker connection.", e);
+            directProxyHandler.close();
+        } catch (AssertionError e) {
+            LOG.error("Failed assertion, closing direct proxy handler.", e);
             directProxyHandler.close();
         }
     }
@@ -423,40 +421,63 @@ public class ProxyConnection extends PulsarHandler {
     // According to auth result, send newConnected or newAuthChallenge command.
     private void doAuthentication(AuthData clientData)
             throws Exception {
-        AuthData brokerData = authState.authenticate(clientData);
-        // authentication has completed, will send newConnected command.
-        if (authState.isComplete()) {
-            clientAuthRole = authState.getAuthRole();
+        authState
+                .authenticateAsync(clientData)
+                .whenCompleteAsync((authChallenge, throwable) -> {
+                    if (throwable == null) {
+                        authChallengeSuccessCallback(authChallenge);
+                    } else {
+                        authenticationFailedCallback(throwable);
+                    }
+                    }, ctx.executor());
+    }
+
+    protected void authenticationFailedCallback(Throwable t) {
+        LOG.warn("[{}] Unable to authenticate: ", remoteAddress, t);
+        final ByteBuf msg = Commands.newError(-1, ServerError.AuthenticationError, "Failed to authenticate");
+        writeAndFlushAndClose(msg);
+    }
+
+    // Always run in this class's event loop.
+    protected void authChallengeSuccessCallback(AuthData authChallenge) {
+        try {
+            // authentication has completed, will send newConnected command.
+            if (authChallenge == null) {
+                clientAuthRole = authState.getAuthRole();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("[{}] Client successfully authenticated with {} role {}",
+                            remoteAddress, authMethod, clientAuthRole);
+                }
+
+                // First connection
+                if (this.connectionPool == null || state == State.Connecting) {
+                    // authentication has completed, will send newConnected command.
+                    completeConnect();
+                }
+                return;
+            }
+
+            // auth not complete, continue auth with client side.
+            final ByteBuf msg = Commands.newAuthChallenge(authMethod, authChallenge, protocolVersionToAdvertise);
+            writeAndFlush(msg);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("[{}] Client successfully authenticated with {} role {}",
-                        remoteAddress, authMethod, clientAuthRole);
+                LOG.debug("[{}] Authentication in progress client by method {}.",
+                        remoteAddress, authMethod);
             }
-
-            // First connection
-            if (this.connectionPool == null || state == State.Connecting) {
-                // authentication has completed, will send newConnected command.
-                completeConnect(clientData);
-            }
-            return;
+        } catch (Exception e) {
+            authenticationFailedCallback(e);
         }
-
-        // auth not complete, continue auth with client side.
-        final ByteBuf msg = Commands.newAuthChallenge(authMethod, brokerData, protocolVersionToAdvertise);
-        writeAndFlush(msg);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("[{}] Authentication in progress client by method {}.",
-                    remoteAddress, authMethod);
-        }
-        state = State.Connecting;
     }
 
     @Override
     protected void handleConnect(CommandConnect connect) {
         checkArgument(state == State.Init);
+        state = State.Connecting;
         this.setRemoteEndpointProtocolVersion(connect.getProtocolVersion());
         this.hasProxyToBrokerUrl = connect.hasProxyToBrokerUrl();
         this.protocolVersionToAdvertise = getProtocolVersionToAdvertise(connect);
         this.proxyToBrokerUrl = connect.hasProxyToBrokerUrl() ? connect.getProxyToBrokerUrl() : "null";
+        this.clientVersion = connect.getClientVersion();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("Received CONNECT from {} proxyToBroker={}", remoteAddress, proxyToBrokerUrl);
@@ -479,7 +500,7 @@ public class ProxyConnection extends PulsarHandler {
 
             // authn not enabled, complete
             if (!service.getConfiguration().isAuthenticationEnabled()) {
-                completeConnect(null);
+                completeConnect();
                 return;
             }
 
@@ -493,6 +514,14 @@ public class ProxyConnection extends PulsarHandler {
                 authMethod = "none";
             }
 
+            if (service.getConfiguration().isForwardAuthorizationCredentials()) {
+                // We store the first clientData here. Before this commit, we stored the last clientData.
+                // Since this only works when forwarding single staged authentication, first == last is true.
+                // Here is an issue to fix the protocol: https://github.com/apache/pulsar/issues/19291.
+                this.clientAuthData = clientData;
+                this.clientAuthMethod = authMethod;
+            }
+
             authenticationProvider = service
                 .getAuthenticationService()
                 .getAuthenticationProvider(authMethod);
@@ -504,7 +533,7 @@ public class ProxyConnection extends PulsarHandler {
                     .orElseThrow(() ->
                         new AuthenticationException("No anonymous role, and no authentication provider configured"));
 
-                completeConnect(clientData);
+                completeConnect();
                 return;
             }
 
@@ -518,9 +547,7 @@ public class ProxyConnection extends PulsarHandler {
             authState = authenticationProvider.newAuthState(clientData, remoteAddress, sslSession);
             doAuthentication(clientData);
         } catch (Exception e) {
-            LOG.warn("[{}] Unable to authenticate: ", remoteAddress, e);
-            final ByteBuf msg = Commands.newError(-1, ServerError.AuthenticationError, "Failed to authenticate");
-            writeAndFlushAndClose(msg);
+            authenticationFailedCallback(e);
         }
     }
 
@@ -544,7 +571,7 @@ public class ProxyConnection extends PulsarHandler {
                     if (authResponse.hasClientVersion()) {
                         clientVersion = authResponse.getClientVersion();
                     } else {
-                        clientVersion = PulsarVersion.getVersion();
+                        clientVersion = this.clientVersion;
                     }
                     int protocolVersion;
                     if (authResponse.hasProtocolVersion()) {

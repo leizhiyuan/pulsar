@@ -47,6 +47,7 @@ import org.apache.bookkeeper.mledger.ManagedLedgerException.TooManyRequestsExcep
 import org.apache.bookkeeper.mledger.Position;
 import org.apache.bookkeeper.mledger.impl.PositionImpl;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.pulsar.broker.delayed.AbstractDelayedDeliveryTracker;
 import org.apache.pulsar.broker.delayed.DelayedDeliveryTracker;
 import org.apache.pulsar.broker.delayed.InMemoryDelayedDeliveryTracker;
 import org.apache.pulsar.broker.delayed.bucket.BucketDelayedDeliveryTracker;
@@ -165,7 +166,12 @@ public class PersistentDispatcherMultipleConsumers extends AbstractDispatcherMul
                 shouldRewindBeforeReadingOrReplaying = false;
             }
             redeliveryMessages.clear();
-            delayedDeliveryTracker.ifPresent(DelayedDeliveryTracker::clear);
+            delayedDeliveryTracker.ifPresent(tracker -> {
+                // Don't clean up BucketDelayedDeliveryTracker, otherwise we will lose the bucket snapshot
+                if (tracker instanceof InMemoryDelayedDeliveryTracker) {
+                    tracker.clear();
+                }
+            });
         }
 
         if (isConsumersExceededOnSubscription()) {
@@ -1148,8 +1154,8 @@ public class PersistentDispatcherMultipleConsumers extends AbstractDispatcherMul
             return 0;
         }
 
-        if (delayedDeliveryTracker.get() instanceof InMemoryDelayedDeliveryTracker) {
-            return ((InMemoryDelayedDeliveryTracker) delayedDeliveryTracker.get()).getBufferMemoryUsage();
+        if (delayedDeliveryTracker.get() instanceof AbstractDelayedDeliveryTracker) {
+            return delayedDeliveryTracker.get().getBufferMemoryUsage();
         }
 
         return 0;

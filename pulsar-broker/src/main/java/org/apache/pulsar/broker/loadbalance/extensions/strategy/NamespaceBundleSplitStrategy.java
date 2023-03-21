@@ -16,13 +16,25 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.pulsar.client.api;
+package org.apache.pulsar.broker.loadbalance.extensions.strategy;
 
-import org.testng.annotations.Test;
+import java.util.Set;
+import org.apache.pulsar.broker.PulsarService;
+import org.apache.pulsar.broker.loadbalance.extensions.LoadManagerContext;
+import org.apache.pulsar.broker.loadbalance.extensions.models.SplitDecision;
 
-@Test(groups = "broker-api")
-public class SimpleSchemaWithSchemaValidationEnforcedTest extends SimpleSchemaTest {
-    public SimpleSchemaWithSchemaValidationEnforcedTest() {
-        super(true);
-    }
+/**
+ * Determines which bundles should be split based on various thresholds.
+ *
+ * Migrate from {@link org.apache.pulsar.broker.loadbalance.BundleSplitStrategy}
+ */
+public interface NamespaceBundleSplitStrategy {
+
+    /**
+     * Determines which bundles, if any, should be split.
+     *
+     * @param context The context used for decisions.
+     * @return A set of the bundles that should be split.
+     */
+    Set<SplitDecision> findBundlesToSplit(LoadManagerContext context, PulsarService pulsar);
 }
